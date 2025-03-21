@@ -18,7 +18,12 @@ const io = new Server(server, {
 });
 
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: "*", // Allow requests from all origins
+    methods: ["GET", "POST"],
+  })
+);
 
 // Use auth and group routes
 app.use("/api/auth", authRoutes);
