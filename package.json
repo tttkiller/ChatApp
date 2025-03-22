@@ -19,6 +19,7 @@
   },
   "scripts": {
     "start": "nodemon backend/server.js",
+    "dev": "nodemon backend/server.js",
     "build": "npm install --legacy-peer-deps && npm install --legacy-peer-deps --prefix frontend && npm run build --prefix frontend",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
@@ -36,6 +37,7 @@
     ]
   },
   "devDependencies": {
+    "nodemon": "^3.1.9",
     "react-app-rewired": "^2.2.1"
   }
 }
