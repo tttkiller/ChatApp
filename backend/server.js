@@ -1,79 +1,119 @@
-// server.js
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
+console.log("JWT_SECRET from .env:", process.env.JWT_SECRET);
 
-const Message = require("./models/message"); // Message model with read field
-const authRoutes = require("./routes/auth"); // Your auth routes
-const groupRoutes = require("./routes/group"); // Your group routes
-
+const Message = require("./models/message"); // Message model
+const authRoutes = require("./routes/auth"); // Auth routes
+const groupRoutes = require("./routes/group"); // Group routes
+const path = require("path");
 const app = express();
 const server = http.createServer(app);
-
 const io = new Server(server, {
   cors: {
-    origin: "https://chatapp-4-lmax.onrender.com",
+    origin: "http://localhost:3000",
     methods: ["GET", "POST"],
   },
 });
 
+// Middleware
 app.use(express.json());
 app.use(
   cors({
-    origin: "*", // Allow requests from all origins
+    origin: "http://localhost:3000",
     methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"],
+    credentials: true,
   })
 );
 
-// Use auth and group routes
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/groups", groupRoutes);
 
-// In-memory online users storage
+const __dirname1 = path.resolve();
+const staticPath = path.join(__dirname1, "..", "frontend", "build");
+
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("Serving static files from:", staticPath);
+
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(staticPath));
+
+  app.get("*", (req, res) => {
+    console.log("Serving index.html");
+    res.sendFile(
+      path.resolve(__dirname1, "..", "frontend", "build", "index.html")
+    );
+  });
+} else {
+  app.get("/", (req, res) => {
+    res.send("API is running successfully");
+  });
+}
+// Online users tracking
 let onlineUsers = {};
 
-io.on("connection", (socket) => {
-  console.log("User Connected:", socket.id);
+// MongoDB Connection
+const connectDB = async () => {
+  try {
+    await mongoose.connect(
+      process.env.MONGO_URI || "mongodb://localhost:27017/chatapp"
+    );
+    console.log("✅ MongoDB connected successfully");
+    console.log("NODE_ENV:", process.env.NODE_ENV);
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", err);
+    setTimeout(connectDB, 5000); // Retry connection every 5 seconds
+  }
+};
 
-  // Identify a user for online presence tracking
+connectDB();
+
+// Socket.IO logic
+io.on("connection", (socket) => {
+  console.log("🔵 User Connected:", socket.id);
+
+  // Identify user
   socket.on("identify", (username) => {
-    if (typeof username === "object") {
-      console.error("Invalid username format:", username);
+    if (!username || typeof username !== "string") {
+      console.error("❌ Invalid username format:", username);
       return;
     }
-    onlineUsers[username] = socket.id;
+    onlineUsers[username.trim()] = socket.id;
     io.emit("onlineUsers", Object.keys(onlineUsers));
-    console.log(`User identified: ${username}`, onlineUsers);
+    console.log(`🟢 User identified: ${username}`, onlineUsers);
   });
 
   // PRIVATE CHAT EVENTS
   socket.on("joinRoom", ({ sender, receiver }) => {
     const roomId = [sender, receiver].sort().join("_");
     socket.join(roomId);
-    console.log(`${sender} joined room: ${roomId}`);
+    console.log(`📌 ${sender} joined room: ${roomId}`);
   });
 
-  socket.on("sendMessage", (data) => {
-    console.log("Private message received:", data);
-    const message = new Message(data);
-    message
-      .save()
-      .then(() => console.log("Private message saved to DB"))
-      .catch((err) => console.error("Error saving private message:", err));
-    const roomId = [data.sender, data.receiver].sort().join("_");
-    // Use broadcast so the sender doesn't receive a duplicate message
-    socket.broadcast.to(roomId).emit("receiveMessage", data);
+  socket.on("sendMessage", async (data) => {
+    console.log("📩 Private message received:", data);
+    try {
+      const message = new Message(data);
+      await message.save();
+      console.log("✅ Private message saved to DB");
+
+      const roomId = [data.sender, data.receiver].sort().join("_");
+      io.to(roomId).emit("receiveMessage", data);
+    } catch (err) {
+      console.error("❌ Error saving private message:", err);
+    }
   });
 
-  // Read Receipt: Mark messages as read and broadcast receipt
+  // Read Receipts
   socket.on("markAsRead", async (data) => {
     try {
-      console.log("Marking messages as read for:", data); // Debug log
+      console.log("📖 Marking messages as read for:", data);
 
-      // Ensure sender and receiver are strings
       const sender = String(data.sender);
       const receiver = String(data.receiver);
 
@@ -92,45 +132,47 @@ io.on("connection", (socket) => {
       io.to(roomId).emit("readReceipt", {
         sender,
         receiver,
-        messages: updatedMessages, // Updated messages with read status
+        messages: updatedMessages,
       });
 
-      console.log(`Marked messages as read for conversation: ${roomId}`);
+      console.log(`✅ Marked messages as read for conversation: ${roomId}`);
     } catch (error) {
-      console.error("Error marking messages as read:", error);
+      console.error("❌ Error marking messages as read:", error);
     }
   });
 
   // GROUP CHAT EVENTS
   socket.on("joinGroup", ({ groupId, user }) => {
     socket.join(groupId);
-    console.log(`${user} joined group ${groupId}`);
+    console.log(`👥 ${user} joined group ${groupId}`);
   });
 
-  socket.on("sendGroupMessage", (data) => {
-    console.log("Group message received:", data);
-    const message = new Message({
-      sender: data.sender,
-      text: data.text,
-      time: data.time,
-      groupId: data.groupId,
-    });
-    message
-      .save()
-      .then(() => console.log("Group message saved"))
-      .catch((err) => console.error("Error saving group message:", err));
-    // Use broadcast to avoid duplicate on sender
-    socket.broadcast.to(data.groupId).emit("receiveGroupMessage", data);
+  socket.on("sendGroupMessage", async (data) => {
+    console.log("📢 Group message received:", data);
+    try {
+      const message = new Message({
+        sender: data.sender,
+        text: data.text,
+        time: data.time,
+        groupId: data.groupId,
+      });
+      await message.save();
+      console.log("✅ Group message saved");
+
+      io.to(data.groupId).emit("receiveGroupMessage", data);
+    } catch (err) {
+      console.error("❌ Error saving group message:", err);
+    }
   });
 
-  // TYPING INDICATOR (private chat)
+  // Typing Indicator
   socket.on("typing", (data) => {
     const roomId = [data.sender, data.receiver].sort().join("_");
     socket.broadcast.to(roomId).emit("typing", data);
   });
 
+  // Disconnect handling
   socket.on("disconnect", () => {
-    // Remove disconnected user from onlineUsers
     for (const [username, id] of Object.entries(onlineUsers)) {
       if (id === socket.id) {
         delete onlineUsers[username];
@@ -138,11 +180,11 @@ io.on("connection", (socket) => {
       }
     }
     io.emit("onlineUsers", Object.keys(onlineUsers));
-    console.log("User Disconnected:", socket.id);
+    console.log("🔴 User Disconnected:", socket.id);
   });
 });
 
-// GET endpoint to fetch private messages
+// GET Private Messages
 app.get("/api/messages", async (req, res) => {
   try {
     const { sender, receiver } = req.query;
@@ -157,14 +199,15 @@ app.get("/api/messages", async (req, res) => {
         { sender: receiver, receiver: sender },
       ],
     }).sort({ createdAt: 1 });
+
     res.json({ messages });
   } catch (err) {
-    console.error("Error fetching messages:", err);
+    console.error("❌ Error fetching messages:", err);
     res.status(500).json({ message: "Error fetching messages" });
   }
 });
 
-// GET endpoint to fetch group messages by groupId
+// GET Group Messages
 app.get("/api/groupMessages", async (req, res) => {
   try {
     const { groupId } = req.query;
@@ -174,17 +217,13 @@ app.get("/api/groupMessages", async (req, res) => {
     const messages = await Message.find({ groupId }).sort({ createdAt: 1 });
     res.json({ messages });
   } catch (err) {
-    console.error("Error fetching group messages:", err);
+    console.error("❌ Error fetching group messages:", err);
     res.status(500).json({ message: "Error fetching group messages" });
   }
 });
 
-mongoose
-  .connect(process.env.MONGO_URI || "mongodb://localhost:27017/chatapp", {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("MongoDB connected successfully"))
-  .catch((err) => console.error("MongoDB connection error:", err));
-
-server.listen(5000, () => console.log("Server running on port 5000"));
+// Start Server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});

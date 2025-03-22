@@ -13,14 +13,11 @@ const Signup = () => {
   const handleSignup = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post(
-        "http://172.20.87.15:5000/api/auth/register",
-        {
-          name, // Remove this field if not required by your backend
-          email,
-          password,
-        }
-      );
+      const res = await axios.post("http://localhost:5000/api/auth/register", {
+        name, // Remove this field if not required by your backend
+        email,
+        password,
+      });
       setMessage(res.data.message);
       setTimeout(() => navigate("/"), 1000);
     } catch (error) {

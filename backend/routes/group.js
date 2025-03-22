@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const Group = require("../models/group");
-
+require("dotenv").config();
 // Create a new group with a list of members
 router.post("/create", async (req, res) => {
   try {
