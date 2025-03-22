@@ -19,7 +19,7 @@
   },
   "scripts": {
     "start": "nodemon backend/server.js",
-    "build": "npm install --legacy peer deps && npm install --legacy peer deps --prefix frontend && npm run build --prefix frontend",
+    "build": "npm install --legacy-peer-deps && npm install --legacy-peer-deps --prefix frontend && npm run build --prefix frontend",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
